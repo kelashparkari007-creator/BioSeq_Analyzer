@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BioSeq Analyzer | DNA Sequence Analysis</title>
+  <meta name="description" content="BioSeq Analyzer - DNA sequence alignment, mutation detection and comparative analysis. Bioinformatics Mini Project.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    try { var t = localStorage.getItem("bioseqTheme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+  </script>
+</head>
+<body>
+
+<!-- ============================ NAVBAR ============================ -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top"><span class="brand-mark">&#129516;</span> BioSeq <b>Analyzer</b></a>
+    <div class="nav-links">
+      <a href="#analyze">Analyze</a>
+      <a href="#results" id="navResults" class="hidden">Results</a>
+      <a href="#team">Team</a>
+      <button id="themeToggle" class="icon-btn" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">&#9790;</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================= HERO ============================= -->
+<header class="hero" id="top">
+  <div class="hero-bg"></div>
+  <div class="hero-inner">
+    <div class="hero-text">
+      <span class="pill">Bioinformatics Mini Project</span>
+      <h1>BioSeq <span>Analyzer</span></h1>
+      <p class="lead">Compare two DNA sequences with real-life <b>affine-gap alignment</b>, find every
+        substitution, insertion and deletion, and export a professional PDF report.</p>
+      <div class="hero-badges">
+        <span>Gotoh global / local alignment</span>
+        <span>Mutation detection</span>
+        <span>FASTA upload</span>
+        <span>PDF report</span>
+      </div>
+      <a href="#analyze" class="btn btn-amber">Start analysis &darr;</a>
+      <div class="presented">Presented to <b>{{ teacher }}</b></div>
+    </div>
+    <div class="helix" id="helix" aria-hidden="true"></div>
+  </div>
+</header>
+
+<main>
+
+<!-- ============================ INPUT ============================= -->
+<section class="card" id="analyze">
+  <div class="card-head">
+    <h2><span class="num-badge">1</span> DNA Sequence Input</h2>
+    <p class="muted">Paste sequences (plain or FASTA with a <code>&gt;header</code>), type them, or drop a FASTA file onto a box.
+      Allowed: A, T, G, C &mdash; plus IUPAC codes like N. Lower-case, spaces and line breaks are fine.</p>
+  </div>
+
+  <div class="input-grid">
+    {% for i in (1, 2) %}
+    <div class="seq-panel" id="drop{{ i }}">
+      <div class="seq-top">
+        <label class="seq-title" for="seq{{ i }}"><span class="dot dot{{ i }}"></span> DNA Sequence {{ i }}</label>
+        <div class="seq-tools">
+          <label class="btn btn-ghost btn-sm" for="file{{ i }}">&#128193; Upload FASTA</label>
+          <input type="file" id="file{{ i }}" class="hidden" data-target="{{ i }}">
+        </div>
+      </div>
+      <input type="text" id="name{{ i }}" class="name-input" placeholder="Name (optional, filled from FASTA header)" maxlength="80">
+      <textarea id="seq{{ i }}" rows="7" spellcheck="false" autocomplete="off"
+                placeholder="{{ 'Example: ATGGCGTACGTTAGCC...' if i == 1 else 'Example: ATGGCGTACCTTAGCC...' }}"></textarea>
+      <div class="seq-info" id="info{{ i }}">0 bp</div>
+      <div class="load-info hidden" id="loadInfo{{ i }}"></div>
+      <div class="chooser hidden" id="chooser{{ i }}"></div>
+      <div class="drop-hint">Drop a FASTA file here</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="settings">
+    <div class="field wide">
+      <label for="mode">Comparison method</label>
+      <select id="mode">
+        <option value="global" selected>Global - compare the whole sequences</option>
+        <option value="semiglobal">Semi-global - one sequence is a part of the other</option>
+        <option value="local">Local - find the best matching part</option>
+        <option value="no_gap">No-gap - simple position by position</option>
+      </select>
+      <p class="help" id="modeHelp"></p>
+      <p class="help">Works for short sequences and for very long ones (millions of bases).</p>
+    </div>
+    <details class="adv" id="advBox">
+      <summary>Advanced scoring (affine gap penalties)</summary>
+      <div class="adv-grid">
+        <div class="field"><label for="match">Match score</label><input type="number" id="match" value="2" min="1" max="20"></div>
+        <div class="field"><label for="mismatch">Mismatch penalty</label><input type="number" id="mismatch" value="3" min="0" max="20"></div>
+        <div class="field"><label for="gapOpen">Gap open penalty</label><input type="number" id="gapOpen" value="5" min="0" max="50"></div>
+        <div class="field"><label for="gapExtend">Gap extend penalty</label><input type="number" id="gapExtend" value="2" min="0" max="50"></div>
+      </div>
+      <p class="help">A gap of length <i>k</i> costs <b>open + (k &minus; 1) &times; extend</b>. Extend &lt; open means one long
+        insertion/deletion is cheaper than many scattered gaps &mdash; this is how real DNA mutates, so alignments look realistic.</p>
+    </details>
+  </div>
+
+  <div id="errorBox" class="alert alert-error hidden" role="alert"></div>
+  <div id="warnBox" class="alert alert-warn hidden"></div>
+
+  <div class="actions">
+    <button id="analyzeBtn" class="btn btn-primary btn-lg" type="button">&#129516; Analyze Sequences</button>
+    <button id="sampleBtn" class="btn btn-ghost" type="button">&#10024; Load example</button>
+    <button id="clearBtn" class="btn btn-ghost" type="button">&#128260; Clear</button>
+  </div>
+</section>
+
+<!-- =========================== RESULTS ============================ -->
+<section id="results" class="hidden">
+  <div class="results-bar">
+    <h2><span class="num-badge">2</span> Analysis Results</h2>
+    <div class="results-actions">
+      <button id="pdfBtn" class="btn btn-amber" type="button">&#128196; Download PDF Report</button>
+      <button id="csvBtn" class="btn btn-ghost" type="button">&#11015; Mutations (CSV)</button>
+      <button id="fastaBtn" class="btn btn-ghost" type="button">&#11015; Alignment (FASTA)</button>
+    </div>
+  </div>
+
+  <!-- Verdict -->
+  <div class="card verdict" id="verdictCard">
+    <div class="ring-wrap">
+      <svg viewBox="0 0 140 140" class="ring" aria-hidden="true">
+        <circle cx="70" cy="70" r="56" class="ring-bg"/>
+        <circle cx="70" cy="70" r="56" class="ring-fg" id="ringFg" transform="rotate(-90 70 70)"/>
+      </svg>
+      <div class="ring-text"><b id="ringValue">0%</b><span>identity</span></div>
+    </div>
+    <div class="verdict-body">
+      <span class="badge" id="verdictBadge">-</span>
+      <h3 id="verdictLabel">-</h3>
+      <p id="verdictText" class="muted"></p>
+      <div class="chips" id="verdictChips"></div>
+      <ul class="hints" id="hintList"></ul>
+    </div>
+  </div>
+
+  <!-- Metrics -->
+  <div class="card">
+    <h3 class="card-title">&#128202; Comparison Statistics</h3>
+    <p class="sum-line" id="sumLine"></p>
+    <div class="size-row" id="sizeRow"></div>
+    <div class="stats" id="metrics"></div>
+    <p class="muted hover-note">Hover (or tap) a card to see what it means.</p>
+  </div>
+
+  <!-- Nucleotide composition -->
+  <div class="card">
+    <h3 class="card-title">&#129514; Nucleotide Composition</h3>
+    <p class="muted">Length of each sequence and the percentage of A, C, G and T in it.</p>
+    <div class="comp-grid" id="compGrid"></div>
+  </div>
+
+  <!-- Alignment -->
+  <div class="card">
+    <h3 class="card-title">&#128279; Sequence Alignment</h3>
+    <div class="aln-head" id="alnHead"></div>
+    <p class="muted" id="alnInfo"></p>
+    <div class="strip-wrap"><canvas id="alnStrip" height="26"></canvas></div>
+    <div class="legend">
+      <span><i class="sw sw-m"></i>Match</span>
+      <span><i class="sw sw-x"></i>Mismatch</span>
+      <span><i class="sw sw-g"></i>Insertion / deletion</span>
+      <span><i class="sw sw-t"></i>End gap</span>
+      <span><i class="sw sw-n"></i>Ambiguous</span>
+    </div>
+    <div class="aln" id="aln"></div>
+    <button id="alnMore" class="btn btn-ghost btn-sm hidden" type="button">Show more</button>
+  </div>
+
+  <!-- Mutations -->
+  <div class="card">
+    <h3 class="card-title">&#129516; Mutation Report <span class="count" id="mutCount"></span></h3>
+    <p class="muted">Seq1 is the reference. <b>Insertion</b> = extra bases in Seq2, <b>Deletion</b> = bases missing in Seq2,
+      <b>End gap</b> = overhang at the 5' / 3' end (kept separate so it does not distort the mutation count).</p>
+    <div class="filters" id="mutFilters"></div>
+    <div class="table-wrap">
+      <table class="tbl" id="mutTable">
+        <thead><tr><th>#</th><th>Type</th><th>Description</th><th>Seq 1 position</th><th>Seq 2 position</th><th>Change</th><th>Length</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <button id="mutMore" class="btn btn-ghost btn-sm hidden" type="button">Show more</button>
+  </div>
+
+  <!-- Charts -->
+  <div class="card">
+    <h3 class="card-title">&#128200; Graphs</h3>
+    <div class="charts">
+      <figure class="chart"><figcaption>Nucleotide counts</figcaption><div id="chartComp"></div></figure>
+      <figure class="chart"><figcaption>Mutation events by type</figcaption><div id="chartMut"></div></figure>
+    </div>
+  </div>
+
+
+  <!-- DNA -> RNA -> Protein -->
+  <div class="card">
+    <h3 class="card-title">&#129516; DNA &rarr; RNA &rarr; Protein</h3>
+    <p class="muted">How each DNA sequence is copied into RNA (T becomes U) and then translated into a protein (<b>*</b> = stop codon).</p>
+    <div class="tr-grid" id="translation"></div>
+  </div>
+</section>
+
+<!-- ============================ TEAM ============================== -->
+<section class="team" id="team">
+  <div class="team-head">
+    <span class="pill pill-dark">The people behind the project</span>
+    <h2>Project Team</h2>
+  </div>
+  <div class="team-grid">
+    {% for name, roll in team %}
+    <div class="member">
+      <div class="avatar">{{ loop.index }}</div>
+      <div>
+        <div class="m-name">{{ name }}</div>
+        <div class="m-roll">{{ roll }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="teacher">
+    <span>Presented to</span>
+    <b>{{ teacher }}</b>
+    <small>Bioinformatics Mini Project &middot; BioSeq Analyzer</small>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <p><b>&#129516; BioSeq Analyzer</b> &middot; Bioinformatics Mini Project</p>
+  <p>Made by {% for name, roll in team %}{{ name }} ({{ roll }}){{ ", " if not loop.last }}{% endfor %}</p>
+  <p>Presented to <b>{{ teacher }}</b></p>
+</footer>
+
+<div id="toast" class="toast hidden" role="status"></div>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
